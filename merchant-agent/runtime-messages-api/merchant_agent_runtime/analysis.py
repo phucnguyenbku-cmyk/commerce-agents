@@ -214,6 +214,7 @@ class AnalysisRunner:
                 "tools": self._tools,
                 "messages": messages,
                 **self._config.thinking_request_fields(),
+                **self._config.credential_request_fields(),
             }
             if container_id is not None:
                 request["container"] = container_id

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+from anthropic import Omit
 from pydantic import ValidationError
 
 from commerce_common.config import BaseAgentConfig
@@ -23,3 +24,12 @@ def test_an_unknown_field_name_fails_at_construction(config_class):
 
 def test_a_subclass_accepts_the_fields_it_adds():
     assert RoleConfig(brand_name="ACME", role_only=2).role_only == 2
+
+
+def test_a_keyed_deployment_sends_no_header_override():
+    assert BaseAgentConfig(model="test-model").credential_request_fields() == {}
+
+
+def test_a_keyless_deployment_omits_the_credential_header():
+    fields = BaseAgentConfig(model="test-model", omit_credential_header=True)
+    assert isinstance(fields.credential_request_fields()["extra_headers"]["X-Api-Key"], Omit)

@@ -76,6 +76,11 @@ extraction, and the analysis delegate (`messages.create`). Any async client in t
 `anthropic` package fits. The parameter is annotated `AsyncAnthropic`, so a type checker
 needs a `cast` for the platform classes.
 
+A gateway that signs the requests itself leaves the process with no credential of its own.
+The SDK refuses to build a request that carries neither a credential nor an explicit
+omission, and it reads that omission from the request rather than the client, so
+`omit_credential_header=True` on the config sends it on every call the agent makes.
+
 ```python
 from pathlib import Path
 

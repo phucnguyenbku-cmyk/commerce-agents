@@ -42,7 +42,7 @@ only the session id, in `X-Session-Id`, and the routes read the principal from i
 | Variable | Effect | Read in | Default |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` | Chat credentials; the environment wins over `<vertical>/.env`, which wins over the repo-root `.env` | `demo_common/host.py` | unset (client credential chain) |
-| `COMMERCE_DEMO_AUTH` | `sdk` skips the `.env` files and clears the key variables so the client's credential chain is used; `run_demo.py --federated` sets it | `demo_common/host.py` | unset |
+| `COMMERCE_DEMO_AUTH` | `sdk` skips the `.env` files, clears the key variables, and sets `omit_credential_header` on both agent configs, for a deployment behind a gateway that signs its requests; `run_demo.py --federated` sets it | `demo_common/host.py` | unset |
 | `DEMO_ALLOWED_HOSTS` | Comma-separated Host values the API answers to besides `localhost` and `127.0.0.1` | `demo_common/host.py` | unset |
 | `DEMO_LOG_LEVEL` | `INFO` writes one line per model call; `DEBUG` adds each request and response | `demo_common/host.py` | `INFO` |
 | `MERCHANT_REQUIRE_HOST_APPROVAL` | `0` lets an approval typed in chat apply a change; `1` requires the preview card's button | `demo_common/host.py` | `1` |

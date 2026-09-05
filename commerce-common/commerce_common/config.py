@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from anthropic import Omit
 from pydantic import BaseModel, ConfigDict, Field
 
 from .fencing import MAX_FENCED_CHARS
@@ -80,6 +81,11 @@ class BaseAgentConfig(BaseModel):
     max_fenced_chars: int = MAX_FENCED_CHARS
     compact_history_above_tokens: int = Field(default=100_000, ge=0)
 
+    # -- Credentials: a deployment whose requests are signed in front of it holds no
+    # credential of its own. The SDK refuses to build a request unless one is set or a
+    # credential header is omitted on that request, so this sends the omission.
+    omit_credential_header: bool = False
+
     def absent_tools(self) -> frozenset[str]:
         """Names the role's `build_tools` leaves out for systems the deployment switches
         off; the executor refuses them too. A role config lists its own."""
@@ -94,3 +100,11 @@ class BaseAgentConfig(BaseModel):
             "thinking": {"type": "adaptive"},
             "output_config": {"effort": self.thinking_effort},
         }
+
+    def credential_request_fields(self) -> dict[str, Any]:
+        """The request fields that carry `omit_credential_header`, for every model call
+        the agent makes. The SDK reads the omission from the request's own headers, not
+        from the client's defaults, so it belongs on each call."""
+        if not self.omit_credential_header:
+            return {}
+        return {"extra_headers": {"X-Api-Key": Omit()}}

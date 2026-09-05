@@ -7,7 +7,12 @@ import os
 import pytest
 
 from demo_common import host as host_module
-from demo_common import host_approval_default, load_demo_env, spawn_background
+from demo_common import (
+    host_approval_default,
+    load_demo_env,
+    omit_credential_header_default,
+    spawn_background,
+)
 from demo_common.host import _background_tasks
 
 
@@ -72,6 +77,13 @@ def test_sdk_auth_clears_key_variables_and_reads_no_file(env_dirs, monkeypatch):
     load_demo_env(example_root)
 
     assert "ANTHROPIC_API_KEY" not in os.environ
+    assert omit_credential_header_default() is True
+
+
+def test_a_keyed_demo_leaves_the_credential_header_in_place(monkeypatch):
+    monkeypatch.delenv("COMMERCE_DEMO_AUTH", raising=False)
+
+    assert omit_credential_header_default() is False
 
 
 async def test_spawn_background_holds_the_task_until_it_finishes():

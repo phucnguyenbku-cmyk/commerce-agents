@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from demo_common import host_approval_default
+from demo_common import host_approval_default, omit_credential_header_default
 from merchant_agent import MerchantAgentConfig
 from shopping_agent import ShoppingAgentConfig
 
@@ -35,6 +35,7 @@ def build_shopping_config() -> ShoppingAgentConfig:
             "every search — results and prices are quotes for those dates, not "
             "catalog constants."
         ),
+        omit_credential_header=omit_credential_header_default(),
     )
 
 
@@ -42,6 +43,7 @@ def build_merchant_config(store_name: str) -> MerchantAgentConfig:
     return MerchantAgentConfig(
         brand_name=store_name,
         require_host_approval=host_approval_default(),
+        omit_credential_header=omit_credential_header_default(),
         approval_surface="the Approve button on the change preview card",
         metrics_intent_terms=_MERCHANT_DEFAULTS.metrics_intent_terms + _METRICS_TERMS,
         # Stays price under nightly_rate, so the price-delta caps follow that field and a

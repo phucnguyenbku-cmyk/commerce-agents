@@ -219,6 +219,7 @@ class MerchantAgent:
                     "tool_choice": tool_choice,
                     "messages": request_messages,
                     **self.config.thinking_request_fields(),
+                    **self.config.credential_request_fields(),
                 }
                 dispatcher = EagerDispatcher(
                     executor.execute, self.config.eager_tool_dispatch and not force_text

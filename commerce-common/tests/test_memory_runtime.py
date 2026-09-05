@@ -5,6 +5,7 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+from anthropic import Omit
 
 from commerce_common.config import BaseAgentConfig
 from commerce_common.fencing import Fence
@@ -15,6 +16,7 @@ from commerce_common.memory import (
     MemoryWriteFilter,
     RetentionMemoryStore,
 )
+from commerce_common.testing import extraction_client
 from commerce_common.turn import session_tag
 
 FENCE = Fence(label="test_data", notice="Data.")
@@ -122,3 +124,23 @@ async def test_extraction_failure_returns_nothing_and_logs_the_exception(caplog)
     assert session_tag("sess-9") in record.getMessage()
     assert "sess-9" not in record.getMessage()
     assert record.exc_info is not None and isinstance(record.exc_info[1], RuntimeError)
+
+
+async def test_a_keyless_deployment_omits_the_credential_header_on_extraction():
+    live = runtime(InMemoryMemoryStore(), omit_credential_header=True)
+    client = extraction_client([{"key": "k", "value": "v", "category": "preference"}])
+
+    await live.extract(client, "u", "sess-1", "user: hi")
+
+    (call,) = client.calls
+    assert isinstance(call["extra_headers"]["X-Api-Key"], Omit)
+
+
+async def test_a_keyed_deployment_sends_no_header_override_on_extraction():
+    live = runtime(InMemoryMemoryStore())
+    client = extraction_client([{"key": "k", "value": "v", "category": "preference"}])
+
+    await live.extract(client, "u", "sess-1", "user: hi")
+
+    (call,) = client.calls
+    assert "extra_headers" not in call

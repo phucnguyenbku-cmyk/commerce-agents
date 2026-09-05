@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-from demo_common import host_approval_default
+from demo_common import host_approval_default, omit_credential_header_default
 from merchant_agent import MerchantAgentConfig
 from shopping_agent import ShoppingAgentConfig
 
@@ -18,6 +18,7 @@ def build_shopping_config() -> ShoppingAgentConfig:
         brand_name="ACME",
         assistant_name="ACME Assistant",
         brand_voice="professional, warm, and brief",
+        omit_credential_header=omit_credential_header_default(),
     )
 
 
@@ -25,6 +26,7 @@ def build_merchant_config(store_name: str) -> MerchantAgentConfig:
     return MerchantAgentConfig(
         brand_name=store_name,
         require_host_approval=host_approval_default(),
+        omit_credential_header=omit_credential_header_default(),
         approval_surface="the Approve button on the change preview card",
         # This deployment runs the run_analysis delegate over MockRetailMerchant's
         # read-only SQL view of the fixtures. MERCHANT_ANALYSIS_CODE_EXECUTION=1 adds the

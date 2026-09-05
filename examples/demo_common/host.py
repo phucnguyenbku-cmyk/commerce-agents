@@ -56,12 +56,23 @@ class DemoStorefront(Protocol):
     ) -> Cart: ...
 
 
+def omit_credential_header_default() -> bool:
+    """``COMMERCE_DEMO_AUTH=sdk`` means the credentials are applied in front of this
+    process, so its requests carry none of their own. Both agent configs set
+    ``omit_credential_header`` from this, and :func:`load_demo_env` reads the same
+    switch."""
+    return os.environ.get("COMMERCE_DEMO_AUTH", "").lower() == "sdk"
+
+
 def load_demo_env(example_root: Path) -> None:
     """Load credentials before any agent is constructed. A variable already in the
     environment wins; the example's own ``.env`` fills in the rest, then the repo-root
-    one; ``COMMERCE_DEMO_AUTH=sdk`` clears key variables instead so the Anthropic SDK's
-    own credential chain is used."""
-    if os.environ.get("COMMERCE_DEMO_AUTH", "").lower() == "sdk":
+    one; ``COMMERCE_DEMO_AUTH=sdk`` clears the key variables instead, for a deployment
+    whose requests are signed in front of it. That mode also sets
+    ``omit_credential_header`` on the agent configs, through
+    :func:`omit_credential_header_default`, because the SDK refuses to build a request
+    that carries no credential and no explicit omission."""
+    if omit_credential_header_default():
         os.environ.pop("ANTHROPIC_API_KEY", None)
         os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
     else:

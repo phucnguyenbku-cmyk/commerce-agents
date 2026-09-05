@@ -17,6 +17,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+from anthropic import Omit
 from pydantic import ValidationError
 
 from commerce_common.testing import (
@@ -206,6 +207,18 @@ async def test_thinking_follows_the_configured_effort(loop, run, session):
         loop.ungated_turn, [text_message("Here you go.")], session=session, thinking_effort=None
     )
     assert off["thinking"] == {"type": "disabled"} and "output_config" not in off
+
+
+async def test_a_keyless_deployment_omits_the_credential_header(loop, run, session):
+    (keyed,) = await run(loop.ungated_turn, [text_message("Here you go.")], session=session)
+    assert "extra_headers" not in keyed
+    (keyless,) = await run(
+        loop.ungated_turn,
+        [text_message("Here you go.")],
+        session=session,
+        omit_credential_header=True,
+    )
+    assert isinstance(keyless["extra_headers"]["X-Api-Key"], Omit)
 
 
 # -- closing on a presentation round --------------------------------------------------------

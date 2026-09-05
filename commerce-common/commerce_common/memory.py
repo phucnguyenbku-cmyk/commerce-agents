@@ -15,11 +15,12 @@ import logging
 import os
 import re
 import time
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Protocol
 
 from anthropic import AsyncAnthropic
@@ -447,6 +448,7 @@ async def extract_facts(
     fence: Fence,
     write_filter: MemoryWriteFilter | None,
     source_session_id: str | None = None,
+    request_fields: Mapping[str, Any] = MappingProxyType({}),
 ) -> list[MemoryFact]:
     """Ask ``model`` what the transcript taught, under the role's ``extraction_prompt``.
     Proposals the write filter rejects, or that restate a fact already held, are
@@ -466,6 +468,7 @@ async def extract_facts(
                 ),
             }
         ],
+        **request_fields,
     }
     started = time.monotonic()
     response = await client.messages.create(**request)
@@ -515,6 +518,7 @@ async def extract_and_store(
     fence: Fence,
     write_filter: MemoryWriteFilter | None,
     source_session_id: str | None = None,
+    request_fields: Mapping[str, Any] = MappingProxyType({}),
 ) -> list[MemoryFact]:
     """Extract against what the store holds and write the result, unless the subject's
     purge generation moved while the model was running. Returns the facts written."""
@@ -529,6 +533,7 @@ async def extract_and_store(
         fence=fence,
         write_filter=write_filter,
         source_session_id=source_session_id,
+        request_fields=request_fields,
     )
     if not new_facts or await store.purge_generation(subject_id) != generation:
         return []
@@ -557,6 +562,7 @@ class MemoryRuntime:
     tier_one_cap: int
     max_fenced_chars: int
     enabled: bool
+    request_fields: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -583,6 +589,7 @@ class MemoryRuntime:
             tier_one_cap=config.memory_tier_one_cap,
             max_fenced_chars=config.max_fenced_chars,
             enabled=bool(config.enable_memory and store is not None),
+            request_fields=MappingProxyType(config.credential_request_fields()),
         )
 
     def validate(
@@ -656,6 +663,7 @@ class MemoryRuntime:
                 fence=self.fence,
                 write_filter=self.write_filter,
                 source_session_id=session_id,
+                request_fields=self.request_fields,
             )
         except Exception:
             logger.warning(

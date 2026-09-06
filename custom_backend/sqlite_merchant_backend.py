@@ -37,7 +37,24 @@ from merchant_agent import (
     PricingContext,
     PromotionDraft,
     StagedChange,
+    check_analysis_sql,
 )
+
+# The actions a SELECT needs: the statement itself, the columns it reads, the functions it
+# calls, and the recursion a CTE uses. Every other action — writes, ATTACH, PRAGMA,
+# extension loading — is denied while an analysis query runs.
+_READ_ONLY_ACTIONS = frozenset(
+    {
+        sqlite3.SQLITE_SELECT,
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_FUNCTION,
+        sqlite3.SQLITE_RECURSIVE,
+    }
+)
+
+
+def _deny_writes(action: int, *_args: object) -> int:
+    return sqlite3.SQLITE_OK if action in _READ_ONLY_ACTIONS else sqlite3.SQLITE_DENY
 
 
 class SqliteMerchantBackend(MerchantBackend):
@@ -585,12 +602,17 @@ class SqliteMerchantBackend(MerchantBackend):
     async def execute_analysis_query(
         self, session: MerchantSessionContext, sql: str
     ) -> AnalysisTable | None:
-        normalized = sql.strip().lower()
-        if not normalized.startswith("select"):
-            raise ValueError("Only read-only SELECT statements are permitted.")
-        cursor = self._conn.execute(sql)
-        columns = [desc[0] for desc in cursor.description]
-        rows = [[str(col) for col in row] for row in cursor.fetchall()]
+        if reason := check_analysis_sql(sql):
+            raise ValueError(f"Only read-only SELECT statements are permitted — {reason}.")
+        # check_analysis_sql is the runner-side check; a backend enforces read-only access
+        # again in its own engine, so SQLite refuses the write a keyword list could miss.
+        self._conn.set_authorizer(_deny_writes)
+        try:
+            cursor = self._conn.execute(sql)
+            columns = [desc[0] for desc in cursor.description]
+            rows = [[str(col) for col in row] for row in cursor.fetchall()]
+        finally:
+            self._conn.set_authorizer(None)
         return AnalysisTable(columns=columns, rows=rows, row_count=len(rows))
 
     async def get_analysis_schema(self, session: MerchantSessionContext) -> str | None:

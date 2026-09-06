@@ -3,8 +3,10 @@
 
 """Unit tests verifying the SqliteStorefrontBackend and SqliteMerchantBackend implementations."""
 
+import sqlite3
+
 import pytest
-from custom_backend.sqlite_merchant_backend import SqliteMerchantBackend
+from custom_backend.sqlite_merchant_backend import SqliteMerchantBackend, _deny_writes
 from custom_backend.sqlite_storefront_backend import SqliteStorefrontBackend
 
 from merchant_agent import (
@@ -205,6 +207,65 @@ async def test_merchant_analysis_sql_query(
     # Refuse non-SELECT queries
     with pytest.raises(ValueError, match="Only read-only SELECT"):
         await merchant_backend.execute_analysis_query(merchant_session, "DELETE FROM listings")
+
+
+@pytest.mark.asyncio
+async def test_merchant_analysis_accepts_a_common_table_expression(
+    merchant_backend: SqliteMerchantBackend, merchant_session: MerchantSessionContext
+) -> None:
+    """check_analysis_sql opens the statement to WITH as well as SELECT, so a backend that
+    only matched a 'select' prefix refused queries the runner had already allowed."""
+    table = await merchant_backend.execute_analysis_query(
+        merchant_session,
+        "WITH cheap AS (SELECT * FROM listings WHERE price < 100) SELECT listing_id FROM cheap",
+    )
+    assert table is not None
+    assert table.columns == ["listing_id"]
+    assert table.rows == [["list_stove_03"]]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "UPDATE listings SET price = 1",
+        "SELECT 1; DROP TABLE listings",
+        "SELECT * FROM listings -- and a comment",
+        "ATTACH DATABASE '/tmp/other.db' AS other",
+        "SELECT load_extension('payload.so')",
+        "SELECT * FROM pragma_table_info('listings')",
+    ],
+)
+@pytest.mark.asyncio
+async def test_merchant_analysis_refuses_everything_that_is_not_a_plain_read(
+    merchant_backend: SqliteMerchantBackend,
+    merchant_session: MerchantSessionContext,
+    sql: str,
+) -> None:
+    with pytest.raises(ValueError, match="Only read-only SELECT"):
+        await merchant_backend.execute_analysis_query(merchant_session, sql)
+
+    assert merchant_backend._conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0] == 3
+
+
+def test_merchant_analysis_authorizer_denies_a_write_the_keyword_check_never_sees() -> None:
+    """The keyword check runs before the engine; the engine refuses the write regardless,
+    which is what makes it a second line rather than a restatement of the first."""
+    backend = SqliteMerchantBackend(":memory:")
+    backend.seed_sample_data()
+
+    backend._conn.set_authorizer(_deny_writes)
+    try:
+        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+            backend._conn.execute("UPDATE listings SET price = 1")
+        assert backend._conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0] == 3
+    finally:
+        backend._conn.set_authorizer(None)
+
+    # Clearing the authorizer leaves ordinary writes working.
+    cursor = backend._conn.execute(
+        "UPDATE listings SET stock = stock WHERE listing_id = 'list_tent_01'"
+    )
+    assert cursor.rowcount == 1
 
 
 @pytest.mark.asyncio

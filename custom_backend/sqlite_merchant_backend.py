@@ -479,14 +479,30 @@ class SqliteMerchantBackend(MerchantBackend):
         items: list[InventoryActionItem],
         note: str | None = None,
     ) -> StagedChange:
-        change_items = [
-            ChangeItem(target=item.listing_id, field="stock", before=0, after=item.quantity or 0)
-            for item in items
-        ]
+        change_items = []
+        for item in items:
+            row = self._conn.execute(
+                "SELECT stock, status FROM listings WHERE listing_id = ?", (item.listing_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"no listing {item.listing_id}")
+            # A restock stages the resulting stock level, not the amount added, because
+            # check_guardrails reads the per-change restock cap as after minus before.
+            if item.action == "restock":
+                field = "stock"
+                before: object = int(row["stock"])
+                after: object = int(row["stock"]) + (item.quantity or 0)
+            else:
+                field = "status"
+                before = row["status"]
+                after = "paused" if item.action == "pause" else "active"
+            change_items.append(
+                ChangeItem(target=item.listing_id, field=field, before=before, after=after)
+            )
         return self.ledger.stage(
             kind=ChangeKind.INVENTORY_ACTION,
             items=change_items,
-            summary=f"Inventory restock for {len(items)} item(s)",
+            summary=f"Inventory action for {len(items)} listing(s)",
             actor=session.operator,
         )
 
@@ -522,22 +538,31 @@ class SqliteMerchantBackend(MerchantBackend):
         return self.ledger.pending()
 
     async def apply_change(self, session: MerchantSessionContext, change_id: str) -> StagedChange:
-        change = self.ledger.get(change_id)
-        if not change:
+        if not self.ledger.get(change_id):
             raise ValueError(f"No change found with id {change_id}")
 
-        # Perform actual database mutation
+        # The ledger decides first. It refuses a change that is no longer staged and one a
+        # guardrail tightened since staging now rejects, so neither reaches the database.
+        applied = self.ledger.apply(change_id, actor=session.operator)
+
         with self._conn:
-            for item in change.items:
+            for item in applied.items:
                 if item.field == "price":
                     self._conn.execute(
                         "UPDATE listings SET price = ? WHERE listing_id = ?",
                         (float(item.after), item.target),
                     )
                 elif item.field == "stock":
+                    # Apply the staged delta rather than the staged total, so two restocks
+                    # staged against the same starting stock both count.
                     self._conn.execute(
                         "UPDATE listings SET stock = stock + ? WHERE listing_id = ?",
-                        (int(item.after), item.target),
+                        (int(item.after) - int(item.before or 0), item.target),
+                    )
+                elif item.field == "status":
+                    self._conn.execute(
+                        "UPDATE listings SET status = ? WHERE listing_id = ?",
+                        ("paused" if item.after == "paused" else "active", item.target),
                     )
                 elif item.field in ("title", "short_description"):
                     self._conn.execute(
@@ -545,7 +570,7 @@ class SqliteMerchantBackend(MerchantBackend):
                         (str(item.after), item.target),
                     )
 
-        return self.ledger.apply(change_id, actor=session.operator)
+        return applied
 
     async def discard_change(
         self,

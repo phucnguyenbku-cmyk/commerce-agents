@@ -7,7 +7,13 @@ import pytest
 from custom_backend.sqlite_merchant_backend import SqliteMerchantBackend
 from custom_backend.sqlite_storefront_backend import SqliteStorefrontBackend
 
-from merchant_agent import ChangeStatus, MerchantSessionContext, PriceUpdateItem
+from merchant_agent import (
+    ChangeNotApplicable,
+    ChangeStatus,
+    InventoryActionItem,
+    MerchantSessionContext,
+    PriceUpdateItem,
+)
 from shopping_agent import SearchFilters, ShoppingSessionContext
 
 
@@ -199,3 +205,99 @@ async def test_merchant_analysis_sql_query(
     # Refuse non-SELECT queries
     with pytest.raises(ValueError, match="Only read-only SELECT"):
         await merchant_backend.execute_analysis_query(merchant_session, "DELETE FROM listings")
+
+
+@pytest.mark.asyncio
+async def test_merchant_pause_and_activate_move_the_listing_status(
+    merchant_backend: SqliteMerchantBackend, merchant_session: MerchantSessionContext
+) -> None:
+    """A pause carries the status field, not a zero-unit stock move that writes nothing."""
+
+    def status() -> str:
+        return merchant_backend._conn.execute(
+            "SELECT status FROM listings WHERE listing_id = 'list_tent_01'"
+        ).fetchone()["status"]
+
+    assert status() == "active"
+
+    paused = await merchant_backend.stage_inventory_action(
+        merchant_session,
+        items=[InventoryActionItem(listing_id="list_tent_01", action="pause")],
+    )
+    assert paused.items[0].field == "status"
+    assert paused.items[0].before == "active"
+    assert paused.items[0].after == "paused"
+    await merchant_backend.apply_change(merchant_session, paused.change_id)
+    assert status() == "paused"
+
+    live = await merchant_backend.stage_inventory_action(
+        merchant_session,
+        items=[InventoryActionItem(listing_id="list_tent_01", action="activate")],
+    )
+    await merchant_backend.apply_change(merchant_session, live.change_id)
+    assert status() == "active"
+
+
+@pytest.mark.asyncio
+async def test_merchant_restock_stages_the_level_the_operator_will_see(
+    merchant_backend: SqliteMerchantBackend, merchant_session: MerchantSessionContext
+) -> None:
+    """The staged diff reads from the current stock, and two restocks staged against the
+    same starting level both count, because apply writes the staged delta."""
+
+    def stock() -> int:
+        return merchant_backend._conn.execute(
+            "SELECT stock FROM listings WHERE listing_id = 'list_tent_01'"
+        ).fetchone()["stock"]
+
+    assert stock() == 14
+
+    first = await merchant_backend.stage_inventory_action(
+        merchant_session,
+        items=[InventoryActionItem(listing_id="list_tent_01", action="restock", quantity=10)],
+    )
+    second = await merchant_backend.stage_inventory_action(
+        merchant_session,
+        items=[InventoryActionItem(listing_id="list_tent_01", action="restock", quantity=5)],
+    )
+    assert first.items[0].before == 14
+    assert first.items[0].after == 24
+
+    await merchant_backend.apply_change(merchant_session, first.change_id)
+    await merchant_backend.apply_change(merchant_session, second.change_id)
+    assert stock() == 29
+
+
+@pytest.mark.asyncio
+async def test_merchant_a_change_the_ledger_refuses_never_reaches_the_database(
+    merchant_backend: SqliteMerchantBackend, merchant_session: MerchantSessionContext
+) -> None:
+    """The ledger decides before the write, so a second apply of an applied change cannot
+    add the restock a second time."""
+
+    def stock() -> int:
+        return merchant_backend._conn.execute(
+            "SELECT stock FROM listings WHERE listing_id = 'list_tent_01'"
+        ).fetchone()["stock"]
+
+    change = await merchant_backend.stage_inventory_action(
+        merchant_session,
+        items=[InventoryActionItem(listing_id="list_tent_01", action="restock", quantity=25)],
+    )
+    await merchant_backend.apply_change(merchant_session, change.change_id)
+    assert stock() == 39
+
+    with pytest.raises(ChangeNotApplicable):
+        await merchant_backend.apply_change(merchant_session, change.change_id)
+    assert stock() == 39
+
+
+@pytest.mark.asyncio
+async def test_merchant_inventory_action_on_an_unknown_listing_is_refused(
+    merchant_backend: SqliteMerchantBackend, merchant_session: MerchantSessionContext
+) -> None:
+    with pytest.raises(ValueError, match="no listing"):
+        await merchant_backend.stage_inventory_action(
+            merchant_session,
+            items=[InventoryActionItem(listing_id="list_absent", action="restock", quantity=1)],
+        )

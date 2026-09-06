@@ -461,7 +461,7 @@ class SqliteMerchantBackend(MerchantBackend):
         return self.ledger.stage(
             kind=ChangeKind.LISTING_UPDATE,
             items=items,
-            summary=f"Update fields on {listing_id}: {', '.join(fields.keys())}",
+            summary=note or f"Update fields on {listing_id}: {', '.join(fields.keys())}",
             actor=session.operator,
         )
 
@@ -486,7 +486,7 @@ class SqliteMerchantBackend(MerchantBackend):
         return self.ledger.stage(
             kind=ChangeKind.PRICE_UPDATE,
             items=change_items,
-            summary=f"Update prices for {len(items)} listing(s)",
+            summary=note or f"Update prices for {len(items)} listing(s)",
             actor=session.operator,
         )
 
@@ -519,7 +519,7 @@ class SqliteMerchantBackend(MerchantBackend):
         return self.ledger.stage(
             kind=ChangeKind.INVENTORY_ACTION,
             items=change_items,
-            summary=f"Inventory action for {len(items)} listing(s)",
+            summary=note or f"Inventory action for {len(items)} listing(s)",
             actor=session.operator,
         )
 

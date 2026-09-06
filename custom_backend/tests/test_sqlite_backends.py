@@ -362,3 +362,23 @@ async def test_merchant_inventory_action_on_an_unknown_listing_is_refused(
             merchant_session,
             items=[InventoryActionItem(listing_id="list_absent", action="restock", quantity=1)],
         )
+
+
+@pytest.mark.asyncio
+async def test_merchant_the_operators_note_becomes_the_change_summary(
+    merchant_backend: SqliteMerchantBackend, merchant_session: MerchantSessionContext
+) -> None:
+    """The summary is what the approval surface shows, so a note the caller wrote has to
+    reach it rather than being replaced by a generated line."""
+    noted = await merchant_backend.stage_price_update(
+        merchant_session,
+        items=[PriceUpdateItem(listing_id="list_tent_01", new_price=209.99)],
+        note="Matching a competitor over the long weekend",
+    )
+    assert noted.summary == "Matching a competitor over the long weekend"
+
+    generated = await merchant_backend.stage_inventory_action(
+        merchant_session,
+        items=[InventoryActionItem(listing_id="list_tent_01", action="restock", quantity=5)],
+    )
+    assert generated.summary == "Inventory action for 1 listing(s)"
